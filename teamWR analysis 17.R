@@ -3,10 +3,10 @@
 # Team WR PPR Analysis for Rotoviz.com Article #
 ################################################
 
-
 library(corrplot)
 library(dplyr)
 library(ggplot2)
+library(tidyr)
 
 #read in team WR finishes from 2012-16
 setwd("C:\\Users\\Jason\\Documents\\R\\NFL data")
@@ -66,7 +66,10 @@ teamfinishes = as.data.frame(teamfinishes)
 #check structure to make sure conversions worked
 str(teamfinishes)
 
-#Now we can look at correlation
+# Write a csv to WD
+#write.csv(teamfinishes, "teamfinishes.csv")
+
+# Now we can look at correlation
 
 #color palette for corr matrix
 color1 <- colorRampPalette(c("#7F0000","red","#FF7F00","white", 
@@ -154,12 +157,93 @@ corrplot(corr.bot10,method="number", type="lower", col=color1(10))
 #Outside of seemingly outlierish 2013 to 14, bottom teams correlation also lags behind the rest of the league
 
 
+###############
+
+#lets now create a box and whisker plot to summarize YOY change for top and btm 8 teams.
+
+#start by initializing vectors to hold n+1 year values
+n1.btm8= c()
+n1.top8 = c()
+
+for(col1 in 1:5){
+  for(col2 in 1:5){
+    
+    #subset bottom 8 teams & top 8 from previous year
+    bot10 = finishesonly %>% filter(finishesonly[,col1]%in% 25:32)
+    top10 = finishesonly %>% filter(finishesonly[,col1]%in% 1:8)
+    
+    #append n+1 year values to list if next year in iteration is 1 year after the first
+    if(col1 +1 == col2){
+       n1.btm8 = append(n1.btm8, bot10[,col2])
+       n1.top8 = append(n1.top8, top10[,col2])
+    }
+  }
+}
+
+#create lists for the n years for top and btm 8
+n.btm8 = rep(seq(25,32),4)
+n.top8 = rep(seq(1,8),4)
+
+#we need to make two similar DFs for n and n+1 data so we can row bind them into one DF for categorical analysis
+#get btm 8 and top 8 values for year n and set year = "n"
+n.df = as.data.frame(cbind(btm = n.btm8, top = n.top8))
+n.df$year = "n"
+
+#now do it for n+1 years
+n1.df = as.data.frame(cbind(btm = n1.btm8, top = n1.top8))
+n1.df$year = "n+1"
+
+#since everything is the same we can now combine into one DF
+nextyearanalysis= rbind(n.df, n1.df)
+
+#make box and whisker plots for n vs n+1 years for btm and top 8
+ggplot(nextyearanalysis, aes(x = year, y = btm, fill=year)) + geom_boxplot(notch=T) + 
+  stat_summary(fun.y=mean, geom="point", shape=22, size=6, fill="red") +
+   geom_jitter(shape=16, position=position_jitter(0.2), col="blue") +
+  labs(title="Bottom 8 Team WRs Rank in Next Season",x="Year", y = "Team WR Rank") +
+  theme(plot.title = element_text(face="bold", size=18, hjust = .5))
+
+ggplot(nextyearanalysis, aes(x = year, y = top, fill=year)) + geom_boxplot(notch=T) +
+  stat_summary(fun.y=mean, geom="point", shape=22, size=6, fill="red") +
+  geom_jitter(shape=16, position=position_jitter(0.2), col="blue") +
+  labs(title="Top 8 Team WRs Rank in Next Season",x="Year", y = "Team WR Rank") +
+  theme(plot.title = element_text(face="bold", size=18, hjust = .5))
+
+summary(n1.df)
+summary(n.df)
+
+# Bottom teams and top teams clearly converging towards opposite direction in n+1 season
+
+
+#### Top 2 WRs from each team analysis ####
 
 #let's now figure out the top 2 WRs on each team in the top 100 from 2016 and join it with our
 #teamfinishes table into a new DF
 top2wr.team = top100 %>% group_by(teamid) %>% summarize(wr1 = min(rank), wr2 = nth(rank,2)) %>% 
   inner_join(teamfinishes, by.x=teamid, by.y=teamid) 
 
-cor(top2wr.team$wr2, top2wr.team$fin16)
 
-write.csv(teamfinishes, "teamfinishes.csv")
+#corr between wr1, wr2, and 2016 finish 
+cor(top2wr.team$wr2, top2wr.team$fin16)
+cor(top2wr.team$wr1, top2wr.team$fin16)
+cor(top2wr.team$wr2, top2wr.team$wr1)
+
+# Scatterplot of WR1 finish vs 2016 team rank.
+ggplot(top2wr.team, aes(x=fin16, y=wr1, label=as.factor(teamid))) + 
+  geom_point() + geom_smooth() + 
+  geom_text(aes(label=as.factor(teamid)),hjust=0, vjust=0)
+
+# We could just as easily make this same plot to compare WR2s to year rank, but visually it makes sense to put the 
+# 2 plots side by side for a better comparison. We need to tidy the data into one variable to make that work.
+
+# create a new DF where WR1 and WR2 ranks are in one column as a factor
+top2wr.tidy =gather(top2wr.team[,1:4], WR, rank.2016, -teamid, -fin16)
+
+#now we can plot the relationship between 2016 finish, WR1, and WR2 side-by-side
+ggplot(top2wr.tidy, aes(y=rank.2016, x=fin16, label=as.factor(teamid))) + 
+  geom_point() + geom_smooth() + 
+  geom_text(aes(label=as.factor(teamid)),hjust=0, vjust=0, col="red") +
+  facet_grid(~WR) + 
+  xlab("Team WR Rank") + ylab("Top 100 WR Rank") +
+  ggtitle("Relationship of Team's Total WR Points vs. Their WR1 & WR2 (2016)") +
+  theme(plot.title = element_text(face="bold", size=18, hjust = .5))
